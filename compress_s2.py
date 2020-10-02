@@ -69,51 +69,67 @@ def generate_blue_mask(ds):
     return blue
 
 
-for j in range(10,18):
+for j in range(18):
     for i in range(26):
         ds2018 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2018.nc")
         ds2019 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2019.nc")
 
         ds = xr.concat([ds2018, ds2019], dim='time').sortby('time')
-        print(ds.time.shape)
 
         # 1. Create blue mask
         blue = generate_blue_mask(ds)
-        print(blue.time)
+        np.save(f"{j:02d}_{i:02d}_times", blue.time.values)
 
         # 2. Apply blue mask over entire dataset
         ds = ds.sel(time=blue.time).where(~np.isnan(blue))
 
         # 3. Apply blue mask over entire dataset
         stack = np.empty((0,400,400))
+
         for vname in ds:
             stack = np.append(stack, ds[vname].values/1e4, axis=0)
-
+        
         stack = stack.reshape(stack.shape[0], -1)
         ncoeffs = stack.shape[0]
 
         input = torch.ones(1, device=device)
         criterion = nan_mse_loss
 
-        target = torch.from_numpy(stack-np.mean(stack, axis=0)).float().to(device)
+        tmean = np.nanmean(stack, axis=0)
+        np.save(f"{j:02d}_{i:02d}_mean", tmean)
+        target = torch.from_numpy(stack-tmean).float().to(device)
 
-        for i in range(12):
-            print(i)
+        for pc_i in range(6):
+            print(pc_i)
             net = Net(ncoeffs)
             net.to(device)
             optimizer = optim.Adam(net.parameters(), lr=0.001)
 
-            for j in range(10000):
+            prev_loss = 10.0
+            patience = 0
+            for it in range(10000):
                 # training loop:
                 optimizer.zero_grad()   # zero the gradient buffers
                 output = net(input)
                 loss = criterion(output, target)
+
+                # Patience 
+                if (prev_loss-loss) < 1e-7:
+                    patience += 1
+                else:
+                    patience = 0
+
+                if patience == 10:
+                    break
+
                 loss.backward()
                 optimizer.step()    # Does the update
 
-                if j % 1000 == 0:
+                if it % 1000 == 0:
                     loss = criterion(output, target)
-                    print(j, loss)
+                    print(it, loss, prev_loss-loss)
+
+                prev_loss = loss
 
             params = list(net.parameters())
             coeffs = params[0].cpu().detach().numpy()
@@ -130,9 +146,9 @@ for j in range(10,18):
             rbase = offset + ((qbase.astype(np.float32)/255)/scale)
             print("QError:", np.mean(np.square(rbase-base)))
 
-            np.save(f"q_coeffs{i:02d}", coeffs)
-            np.save(f"q_offscale{i:02d}", np.array([offset,scale]))
-            np.save(f"q_base{i:02d}", qbase)
+            np.save(f"{j:02d}_{i:02d}_q_coeffs{pc_i:02d}", coeffs)
+            np.save(f"{j:02d}_{i:02d}_q_offscale{pc_i:02d}", np.array([offset,scale]))
+            np.save(f"{j:02d}_{i:02d}_q_base{pc_i:02d}", qbase)
 
             residual = target.cpu().detach().numpy() - coeffs*rbase.reshape(1,-1)
             target = torch.from_numpy(residual).to(device)
