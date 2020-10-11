@@ -69,8 +69,8 @@ def generate_blue_mask(ds):
     return blue
 
 
-for j in range(18):
-    for i in range(26):
+for j in range(1,18):
+    for i in range(25):
         ds2018 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2018.nc")
         ds2019 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2019.nc")
 
@@ -93,8 +93,6 @@ for j in range(18):
         ncoeffs = stack.shape[0]
 
         input = torch.ones(1, device=device)
-        criterion = nan_mse_loss
-
         tmean = np.nanmean(stack, axis=0)
         np.save(f"{j:02d}_{i:02d}_mean", tmean)
         target = torch.from_numpy(stack-tmean).float().to(device)
@@ -111,7 +109,7 @@ for j in range(18):
                 # training loop:
                 optimizer.zero_grad()   # zero the gradient buffers
                 output = net(input)
-                loss = criterion(output, target)
+                loss = nan_mse_loss(output, target)
 
                 # Patience 
                 if (prev_loss-loss) < 1e-7:
