@@ -1,34 +1,30 @@
 import xarray as xr
 import numpy as np
 from scipy import signal
-from skimage import morphology
+from skimage.morphology import dilation
+from skimage.morphology import disk
+from skimage.morphology import remove_small_objects
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-if torch.cuda.is_available():
-  dev = "cuda:0"
-else:
-  dev = "cpu"
-
-device = torch.device(dev)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
-
 
 class Net(nn.Module):
 
     def __init__(self, n_coeffs):
         super(Net, self).__init__()
         self.n_coeffs = n_coeffs
-        self.fc1 = nn.Linear(1, self.n_coeffs, bias=False)  # 6*6 from image dimension
+        self.fc1 = nn.Linear(1, self.n_coeffs, bias=False)
         self.fc2 = nn.Linear(1, 160000, bias=False)
 
     def forward(self, x):
         coeffs = self.fc1(x)
         base = self.fc2(x)
-        return torch.mul(coeffs.view(self.n_coeffs, 1), base.view(1, 160000))
+        return torch.matmul(coeffs.unsqueeze(1), base.unsqueeze(0))
 
 
 def nan_mse_loss(output, target):
@@ -51,26 +47,36 @@ def buffer_nans(da, kn):
 def generate_blue_mask(ds):
     blue = ds.nbart_blue.astype(np.float32) / 1e4
 
-    # 1.- Create mask for reflectances with deviations more than 0.07 from lower quartile
-    qmask = ((blue - blue.quantile(0.25, dim='time'))>.07).values
+    # 1.- Remove images with less than 1000 valid pixels
+    blue = blue.isel(time=(np.count_nonzero(~np.isnan(blue.values), axis=(1,2)))>1000)
 
-    # 2.- Remove small objects (< 36 pixels)
+    # 2.- Create mask for reflectances with deviations more than 10% from lower quartile
+    qmask = ((blue - blue.quantile(0.25, dim='time'))>.1).values
+
+    # 3.- Remove small objects (< 36 pixels) and grow a 15 pixel disk buffer around remaining objects
     for i in range(qmask.shape[0]):
-        qmask[i] = morphology.remove_small_objects(qmask[i], 36)
-        
+        qmask[i] = remove_small_objects(qmask[i], 36)
+        qmask[i] = dilation(qmask[i], disk(15))
+        qmask[i][np.isnan(blue[i].values)] = False
+
+    # 4.- Apply mask
     blue = blue.where(~qmask)
 
-    # 3.- Grow a 9x9 buffer around NaN pixels 
-    blue = buffer_nans(blue, 9)
+    # 5.- Discard frames with more than 33% missing pixels (relative to the initial valid pixels)
+    blue = blue.isel(time=(np.count_nonzero(qmask, axis=(1,2)) / (1+np.count_nonzero(~np.isnan(blue.values), axis=(1,2))))<.33)
 
-    # 4.- Discard frames with more than 33% missing pixels
-    blue = blue.isel(time=(np.count_nonzero(np.isnan(blue.values), axis=(1,2))/(400*400))<.33)
-    
     return blue
 
+#(i,j)
+#(6,10) -> Canberra Civic
+#(12,4) -> Reflective terrain
 
-for j in range(1,18):
-    for i in range(25):
+#for j in range(1,18):
+for _ in [1]:
+    #for i in range(25):
+    for i, j in [(6,10), (12,4)]:
+        print(i,j)
+
         ds2018 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2018.nc")
         ds2019 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2019.nc")
 
@@ -93,26 +99,26 @@ for j in range(1,18):
         ncoeffs = stack.shape[0]
 
         input = torch.ones(1, device=device)
+        #input = torch.ones(1, device='cpu')
         tmean = np.nanmean(stack, axis=0)
         np.save(f"{j:02d}_{i:02d}_mean", tmean)
         target = torch.from_numpy(stack-tmean).float().to(device)
+        #target = torch.from_numpy(stack-tmean).float()
 
         for pc_i in range(6):
-            print(pc_i)
             net = Net(ncoeffs)
             net.to(device)
-            optimizer = optim.Adam(net.parameters(), lr=0.001)
+            optimizer = optim.Adam(net.parameters(), lr=0.1)
 
             prev_loss = 10.0
             patience = 0
             for it in range(10000):
                 # training loop:
-                optimizer.zero_grad()   # zero the gradient buffers
                 output = net(input)
                 loss = nan_mse_loss(output, target)
 
                 # Patience 
-                if (prev_loss-loss) < 1e-7:
+                if (prev_loss-loss.item()) < 1e-7:
                     patience += 1
                 else:
                     patience = 0
@@ -120,14 +126,11 @@ for j in range(1,18):
                 if patience == 10:
                     break
 
+                optimizer.zero_grad()   # zero the gradient buffers
                 loss.backward()
                 optimizer.step()    # Does the update
 
-                if it % 1000 == 0:
-                    loss = criterion(output, target)
-                    print(it, loss, prev_loss-loss)
-
-                prev_loss = loss
+                prev_loss = loss.item()
 
             params = list(net.parameters())
             coeffs = params[0].cpu().detach().numpy()
