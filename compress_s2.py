@@ -75,8 +75,6 @@ def generate_blue_mask(ds):
 for _ in [1]:
     #for i in range(25):
     for i, j in [(6,10), (12,4)]:
-        print(i,j)
-
         ds2018 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2018.nc")
         ds2019 = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_2019.nc")
 
@@ -99,11 +97,9 @@ for _ in [1]:
         ncoeffs = stack.shape[0]
 
         input = torch.ones(1, device=device)
-        #input = torch.ones(1, device='cpu')
         tmean = np.nanmean(stack, axis=0)
         np.save(f"{j:02d}_{i:02d}_mean", tmean)
         target = torch.from_numpy(stack-tmean).float().to(device)
-        #target = torch.from_numpy(stack-tmean).float()
 
         for pc_i in range(6):
             net = Net(ncoeffs)
@@ -117,7 +113,7 @@ for _ in [1]:
                 output = net(input)
                 loss = nan_mse_loss(output, target)
 
-                # Patience 
+                # patience 
                 if (prev_loss-loss.item()) < 1e-7:
                     patience += 1
                 else:
@@ -128,13 +124,25 @@ for _ in [1]:
 
                 optimizer.zero_grad()   # zero the gradient buffers
                 loss.backward()
-                optimizer.step()    # Does the update
+                optimizer.step()    # does the update
 
                 prev_loss = loss.item()
 
             params = list(net.parameters())
             coeffs = params[0].cpu().detach().numpy()
             base = params[1].cpu().detach().numpy()
+
+            #------------------ No Quantisation ---------------#
+            np.save(f"{j:02d}_{i:02d}_base{pc_i:02d}", base)
+            np.save(f"{j:02d}_{i:02d}_coeffs{pc_i:02d}", coeffs)
+            
+            residual = target.cpu().detach().numpy() - coeffs*base.reshape(1,-1)
+            target = torch.from_numpy(residual).to(device)
+            continue
+            #---------------------- End -----------------------#
+
+
+            #-------------------- Quantisation ----------------#
             print("Range:", base.max()-base.min(), "QRes:", (base.max()-base.min())/255)
 
             offset = base.min()
@@ -153,3 +161,5 @@ for _ in [1]:
 
             residual = target.cpu().detach().numpy() - coeffs*rbase.reshape(1,-1)
             target = torch.from_numpy(residual).to(device)
+            #---------------------- End -----------------------#
+
