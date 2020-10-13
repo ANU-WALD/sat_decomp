@@ -91,7 +91,8 @@ tmean = np.nanmean(stack, axis=0)
 np.save(f"baseline_mean", tmean)
 target = torch.from_numpy(stack-tmean).float().to(device)
 
-for pc_i in range(6):
+for pc_i in range(24):
+    print("Component:", pc_i)
     net = Net(ncoeffs)
     net.to(device)
     optimizer = optim.Adam(net.parameters(), lr=0.1)
