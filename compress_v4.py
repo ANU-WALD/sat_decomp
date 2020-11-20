@@ -16,7 +16,7 @@ class AE(nn.Module):
         self.n_coeffs = n_coeffs
         self.n_comps = n_comps
         self.D = nn.Linear(1, self.n_comps*404*404, bias=False)
-        self.conv1 = nn.Conv2d(self.n_comps, 2*self.n_comps, kernel_size=5)
+        self.conv1 = nn.Conv2d(self.n_comps, 2*self.n_comps, kernel_size=5, bias=False)
         self.coeffs = nn.Linear(1, 2*self.n_comps*self.n_coeffs, bias=False)
 
     def forward(self, x):
@@ -34,11 +34,11 @@ def nan_mse_loss(output, target):
 for j in range(18):
     for i in range(25):
         ds = xr.open_dataset(f"/data/pca_act/{26*j+i:03d}_clean.nc")
-        stack = np.empty((0,400,400))
         ti_nan = (np.count_nonzero(np.isnan(ds.nbart_blue.values), axis=(1,2)))<.66*160000
         ds = ds.isel(time=ti_nan)
         np.save(f"{j:02d}_{i:02d}_times", ds.time.values)
 
+        stack = np.empty((0,400,400))
         for fname in ds:
             band = ds[fname].values/1e4
             stack = np.append(stack, band, axis=0)
@@ -74,15 +74,13 @@ for j in range(18):
             if it % 100 == 0:
                 print(it, loss.item(), nan_mse_loss(output, target).item())
 
-        torch.save(net, f"{j:02d}_{i:02d}_net.py")
+        torch.save(net, f"{j:02d}_{i:02d}_net.pt")
 
         params = list(net.parameters())
         base = params[0].cpu().detach().numpy()
         kernel = params[1].cpu().detach().numpy()
-        par = params[2].cpu().detach().numpy()
-        coeffs = params[3].cpu().detach().numpy()
+        coeffs = params[2].cpu().detach().numpy()
 
         np.save(f"{j:02d}_{i:02d}_base", base)
         np.save(f"{j:02d}_{i:02d}_kernel", kernel)
-        np.save(f"{j:02d}_{i:02d}_param", par)
         np.save(f"{j:02d}_{i:02d}_coeffs", coeffs)
