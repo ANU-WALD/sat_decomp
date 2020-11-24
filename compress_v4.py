@@ -23,7 +23,7 @@ class AE(nn.Module):
         base = self.D(x)
         conv1 =  torch.tanh(self.conv1(base.reshape(1, self.n_comps, 404, 404)))
         coeffs = self.coeffs(x).view(2*self.n_comps, self.n_coeffs)
-        return torch.einsum('ik,kj->ji', conv1.view(400*400, 2*self.n_comps), coeffs)
+        return torch.einsum('ki,kj->ji', conv1.view(2*self.n_comps,400*400), coeffs)
 
 
 def nan_mse_loss(output, target):
@@ -56,9 +56,9 @@ for j in range(18):
 
         net = AE(ncomps, ncoeffs)
         net.to(device)
-        optimizer = optim.AdamW(net.parameters(), lr=0.01)
+        optimizer = optim.AdamW(net.parameters(), lr=0.1)
 
-        epochs = 10000
+        epochs = 1500
         # training loop:
         for it in range(epochs):
             output = net(input)
