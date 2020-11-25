@@ -50,7 +50,7 @@ for j in range(18):
 
         input = torch.ones(1, device=device)
         tmean = np.nanmean(stack, axis=0)
-        np.save(f"{j:02d}_{i:02d}_mean", tmean)
+        np.save(f"{j:02d}_{i:02d}_mean", tmean.astype(np.float32)
 
         target = torch.from_numpy(stack-tmean).float().to(device)
 
