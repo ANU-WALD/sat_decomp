@@ -197,3 +197,8 @@ for j in range(18):
         cfs = net.cfs.detach().cpu().numpy()
         print("Zeros after 4x:", np.sum(np.isclose(cfs, np.zeros(cfs.shape), rtol=1e-03, atol=1e-04)))
         print(f"Zeros after 4x: 0.1->{np.sum(np.abs(cfs)<0.1)} 0.01->{np.sum(np.abs(cfs)<0.01)} 0.001->{np.sum(np.abs(cfs)<0.001)} 0.0001->{np.sum(np.abs(cfs)<0.0001)} 0.00001->{np.sum(np.abs(cfs)<0.00001)} 0.000001->{np.sum(np.abs(cfs)<0.000001)} 0.0000001->{np.sum(np.abs(cfs)<0.0000001)}")
+        plt.imshow(cfs.T, vmin=-1.0, vmax=1.0, aspect=10, cmap='bwr')
+        plt.colorbar()
+        plt.savefig(f"coeffs_{26*j+i:03d}_sparse4x.png")
+        plt.clf()
+        exit()
